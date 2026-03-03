@@ -123,6 +123,17 @@ func (l *TodoList) SetStatus(id int, status TodoStatus) error {
 	return nil
 }
 
+func (l *TodoList) SetTitle(id int, title string) error {
+	for i, item := range l.Items {
+		if item.ID == id {
+			l.Items[i].Title = title
+			l.Items[i].UpdatedAt = time.Now().Unix()
+			return nil
+		}
+	}
+	return fmt.Errorf("todo with ID %d not found", id)
+}
+
 func (l *TodoList) nextID() int {
 	if len(l.Items) == 0 {
 		return 1

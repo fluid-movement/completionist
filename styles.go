@@ -29,6 +29,15 @@ var (
 				Foreground(lipgloss.Color("#6B7280")).
 				Italic(true).
 				Padding(0, 0, 0, 2)
+
+	refChoiceStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9CA3AF")).
+			PaddingLeft(2)
+
+	refChoiceSelectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#A855F7")).
+				Bold(true).
+				PaddingLeft(2)
 )
 
 const (

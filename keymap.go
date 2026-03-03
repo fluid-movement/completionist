@@ -14,19 +14,20 @@ type kanbanKeyMap struct {
 	Up      key.Binding
 	Down    key.Binding
 	Delete  key.Binding
+	Edit    key.Binding
 	Open    key.Binding
 	Quit    key.Binding
 }
 
 func (k kanbanKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Add, k.Advance, k.Retreat, k.Left, k.Right, k.Delete, k.Open, k.Quit}
+	return []key.Binding{k.Add, k.Advance, k.Retreat, k.Left, k.Right, k.Delete, k.Edit, k.Open, k.Quit}
 }
 
 func (k kanbanKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Add, k.Advance, k.Retreat},
 		{k.Left, k.Right, k.Up, k.Down},
-		{k.Delete, k.Open, k.Quit},
+		{k.Delete, k.Edit, k.Open, k.Quit},
 	}
 }
 
@@ -54,8 +55,8 @@ var kanbanKeys = kanbanKeyMap{
 		key.WithHelp("r", "move right"),
 	),
 	Retreat: key.NewBinding(
-		key.WithKeys("e"),
-		key.WithHelp("e", "move left"),
+		key.WithKeys("w"),
+		key.WithHelp("w", "move left"),
 	),
 	Left: key.NewBinding(
 		key.WithKeys("h", "left"),
@@ -76,6 +77,10 @@ var kanbanKeys = kanbanKeyMap{
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete"),
+	),
+	Edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", "edit"),
 	),
 	Open: key.NewBinding(
 		key.WithKeys("o"),
