@@ -1,85 +1,80 @@
 package main
 
 import (
-	"strings"
-
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func (m model) View() tea.View {
-	var body strings.Builder
+	v := tea.NewView(lipgloss.JoinVertical(
+		0,
+		renderHeader(),
+		renderBody(m),
+		renderFooter(m),
+	))
+	v.AltScreen = true
 
-	// Header
-	body.WriteString(titleStyle.Render("✓ Completionist"))
-	body.WriteString("\n")
-	body.WriteString(subtitleStyle.Render("your personal todo list"))
-	body.WriteString("\n\n")
+	return v
+}
 
-	// Todo list
-	if len(m.todos.Items) == 0 {
-		body.WriteString("  " + helpStyle.Render("Nothing here yet — press 'a' to add your first todo."))
-		body.WriteString("\n")
-	} else {
-		for i, item := range m.todos.Items {
-			selected := i == m.cursor
+func renderHeader() string {
+	return titleStyle.Render("✓ Completionist") + "\n" + subtitleStyle.Render("your personal todo list") + "\n\n"
+}
 
-			// Cursor column
-			if selected {
-				body.WriteString(cursorStyle.Render("▶"))
-			} else {
-				body.WriteString(" ")
+func renderBody(m model) string {
+	outerW, innerW, colH := columnSize(m.width, m.height)
+
+	// Delegate that suppresses the selection highlight — used for non-focused columns
+	blurredDelegate := list.NewDefaultDelegate()
+	blurredDelegate.Styles.SelectedTitle = blurredDelegate.Styles.NormalTitle
+	blurredDelegate.Styles.SelectedDesc = blurredDelegate.Styles.NormalDesc
+
+	var cols [3]string
+	for i := range m.columns {
+		isAdding := m.state == stateAdding && i == 0
+		isFocused := i == m.focused && m.state == stateKanban
+
+		// Render the title bar using the list's own styles (list.SetShowTitle is false)
+		titleBar := m.columns[i].Styles.TitleBar.Render(
+			m.columns[i].Styles.Title.Render(m.columns[i].Title),
+		)
+		titleH := lipgloss.Height(titleBar)
+
+		// Build column sections: title, optional input, list content
+		sections := []string{titleBar}
+		if isAdding {
+			m.columns[i].SetDelegate(blurredDelegate)
+			m.columns[i].SetSize(innerW, colH-titleH-1) // -1 for the input row
+			sections = append(sections, m.input.View())
+		} else {
+			if !isFocused {
+				m.columns[i].SetDelegate(blurredDelegate)
 			}
-			body.WriteString(" ")
+			m.columns[i].SetSize(innerW, colH-titleH)
+		}
+		sections = append(sections, m.columns[i].View())
+		colContent := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
-			// Checkbox
-			if item.Completed {
-				body.WriteString(checkDoneStyle.Render("●"))
-			} else {
-				body.WriteString(checkTodoStyle.Render("○"))
-			}
-			body.WriteString(" ")
-
-			// Title
-			switch {
-			case item.Completed:
-				body.WriteString(completedStyle.Render(item.Title))
-			case selected:
-				body.WriteString(selectedStyle.Render(item.Title))
-			default:
-				body.WriteString(item.Title)
-			}
-			body.WriteString("\n")
+		if isFocused || isAdding {
+			cols[i] = columnFocusedStyle.Width(outerW).Render(colContent)
+		} else {
+			cols[i] = columnBlurredStyle.Width(outerW).Render(colContent)
 		}
 	}
 
-	body.WriteString("\n")
+	return lipgloss.JoinHorizontal(lipgloss.Top, cols[0], cols[1], cols[2])
+}
 
-	// Footer: input or help
+func renderFooter(m model) string {
+	var helpView string
 	if m.state == stateAdding {
-		body.WriteString(inputLabelStyle.Render("  New todo › ") + m.input.View())
-		body.WriteString("\n")
-		body.WriteString("  " + helpStyle.Render("enter")+helpKeyStyle.Render(" to save  ")+helpStyle.Render("esc")+helpKeyStyle.Render(" to cancel"))
-		body.WriteString("\n")
+		helpView = m.help.View(addingKeys)
 	} else {
-		if m.err != nil {
-			body.WriteString("  " + errorStyle.Render("⚠  "+m.err.Error()))
-			body.WriteString("\n")
-		}
-		keys := []string{"a", "enter/c", "d", "j/k", "q"}
-		descs := []string{"add", "complete", "delete", "navigate", "quit"}
-		var help strings.Builder
-		for i, k := range keys {
-			help.WriteString(helpKeyStyle.Render(k))
-			help.WriteString(" ")
-			help.WriteString(helpStyle.Render(descs[i]))
-			if i < len(keys)-1 {
-				help.WriteString(helpStyle.Render("  ·  "))
-			}
-		}
-		body.WriteString("  " + help.String())
-		body.WriteString("\n")
+		helpView = m.help.View(kanbanKeys)
 	}
-
-	content := borderStyle.Render(body.String())
-	return tea.NewView(content)
+	if m.err != nil {
+		return "  " + errorStyle.Render("⚠  "+m.err.Error()) + "\n"
+	}
+	return "  " + helpView + "\n"
 }
