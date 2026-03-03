@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
+	"strings"
 	"time"
 )
 
@@ -14,28 +17,73 @@ const (
 )
 
 type TodoItem struct {
-	ID          int        `json:"id"`
-	Title       string     `json:"title"`
-	Status      TodoStatus `json:"status"`
-	UpdatedAt   int64      `json:"updated_at,omitempty"`
-	CreatedAt   int64      `json:"created_at"`
+	ID        int        `json:"id"`
+	Title     string     `json:"title"`
+	Status    TodoStatus `json:"status"`
+	UpdatedAt int64      `json:"updated_at,omitempty"`
+	CreatedAt int64      `json:"created_at"`
+	Ref       string     `json:"ref,omitempty"`
 }
 
 type TodoList struct {
 	Items []TodoItem
 }
 
-func (l *TodoList) Add(title string) (TodoItem, error) {
+func (l *TodoList) Add(title, ref string) (TodoItem, error) {
 	todo := TodoItem{
 		ID:        l.nextID(),
 		Title:     title,
 		Status:    StatusOpen,
 		CreatedAt: time.Now().Unix(),
+		Ref:       ref,
 	}
 
 	l.Items = append(l.Items, todo)
 
 	return todo, nil
+}
+
+// OpenRef opens the todo's Ref in the appropriate application.
+// Returns nil if Ref is empty.
+func (i *TodoItem) OpenRef() error {
+	if i.Ref == "" {
+		return nil
+	}
+	if strings.HasPrefix(i.Ref, "!") {
+		cmd := strings.TrimPrefix(i.Ref, "!")
+		parts := strings.Fields(cmd)
+		if len(parts) == 0 {
+			return nil
+		}
+		return exec.Command(parts[0], parts[1:]...).Start()
+	}
+	var opener string
+	if runtime.GOOS == "darwin" {
+		opener = "open"
+	} else {
+		opener = "xdg-open"
+	}
+	return exec.Command(opener, i.Ref).Start()
+}
+
+// RefDescription returns a short human-readable label for the Ref.
+func (i *TodoItem) RefDescription() string {
+	if i.Ref == "" {
+		return ""
+	}
+	truncate := func(s string, n int) string {
+		if len(s) <= n {
+			return s
+		}
+		return s[:n] + "…"
+	}
+	if strings.HasPrefix(i.Ref, "http://") || strings.HasPrefix(i.Ref, "https://") {
+		return "↗ " + truncate(i.Ref, 45)
+	}
+	if strings.HasPrefix(i.Ref, "!") {
+		return "$ " + truncate(strings.TrimPrefix(i.Ref, "!"), 45)
+	}
+	return "→ " + truncate(i.Ref, 45)
 }
 
 func (l *TodoList) Remove(id int) error {

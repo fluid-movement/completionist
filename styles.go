@@ -24,6 +24,11 @@ var (
 				BorderStyle(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("#374151")).
 				Padding(0, 1)
+
+	pendingTitleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6B7280")).
+				Italic(true).
+				Padding(0, 0, 0, 2)
 )
 
 const (

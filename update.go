@@ -17,6 +17,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i := range m.columns {
 			m.columns[i].SetSize(innerW, colH)
 		}
+		m.input.SetWidth(innerW - 2)
+		m.refInput.SetWidth(innerW - 2)
 		return m, nil
 	case tea.KeyPressMsg:
 		switch m.state {
@@ -24,6 +26,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateKanban(msg)
 		case stateAdding:
 			return m.updateAdding(msg)
+		case stateAddingRef:
+			return m.updateAddingRef(msg)
+		}
+	default:
+		// Forward all other messages (e.g. paste) to whichever input is active.
+		switch m.state {
+		case stateAdding:
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		case stateAddingRef:
+			var cmd tea.Cmd
+			m.refInput, cmd = m.refInput.Update(msg)
+			return m, cmd
 		}
 	}
 	return m, nil
@@ -85,6 +101,12 @@ func (m model) updateKanban(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case key.Matches(msg, kanbanKeys.Open):
+		if item := m.columns[m.focused].SelectedItem(); item != nil {
+			t := item.(todoListItem).todo
+			m.err = t.OpenRef()
+		}
+		return m, nil
 	default:
 		var cmd tea.Cmd
 		m.columns[m.focused], cmd = m.columns[m.focused].Update(msg)
@@ -100,17 +122,41 @@ func (m model) updateAdding(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, addingKeys.Confirm):
 		title := strings.TrimSpace(m.input.Value())
-		if title != "" {
-			m.todos.Add(title)
-			m.storage.Save(m.todos)
-			syncColumns(&m)
+		if title == "" {
+			return m, nil
 		}
-		m.state = stateKanban
+		m.pendingTitle = title
+		m.state = stateAddingRef
 		m.input.Blur()
-		return m, nil
+		m.refInput.Reset()
+		_, innerW, _ := columnSize(m.width, m.height)
+		m.refInput.SetWidth(innerW - 2)
+		return m, m.refInput.Focus()
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m model) updateAddingRef(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, addingKeys.Cancel):
+		m.pendingTitle = ""
+		m.refInput.Blur()
+		m.state = stateKanban
+		return m, nil
+	case key.Matches(msg, addingKeys.Confirm):
+		m.todos.Add(m.pendingTitle, strings.TrimSpace(m.refInput.Value()))
+		m.storage.Save(m.todos)
+		syncColumns(&m)
+		m.pendingTitle = ""
+		m.refInput.Blur()
+		m.state = stateKanban
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.refInput, cmd = m.refInput.Update(msg)
 		return m, cmd
 	}
 }

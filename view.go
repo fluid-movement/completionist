@@ -33,6 +33,7 @@ func renderBody(m model) string {
 	var cols [3]string
 	for i := range m.columns {
 		isAdding := m.state == stateAdding && i == 0
+		isAddingRef := m.state == stateAddingRef && i == 0
 		isFocused := i == m.focused && m.state == stateKanban
 
 		// Render the title bar using the list's own styles (list.SetShowTitle is false)
@@ -47,6 +48,11 @@ func renderBody(m model) string {
 			m.columns[i].SetDelegate(blurredDelegate)
 			m.columns[i].SetSize(innerW, colH-titleH-1) // -1 for the input row
 			sections = append(sections, m.input.View())
+		} else if isAddingRef {
+			m.columns[i].SetDelegate(blurredDelegate)
+			m.columns[i].SetSize(innerW, colH-titleH-2) // -2 for pending title + ref input
+			sections = append(sections, pendingTitleStyle.Render(m.pendingTitle))
+			sections = append(sections, m.refInput.View())
 		} else {
 			if !isFocused {
 				m.columns[i].SetDelegate(blurredDelegate)
@@ -56,7 +62,7 @@ func renderBody(m model) string {
 		sections = append(sections, m.columns[i].View())
 		colContent := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
-		if isFocused || isAdding {
+		if isFocused || isAdding || isAddingRef {
 			cols[i] = columnFocusedStyle.Width(outerW).Render(colContent)
 		} else {
 			cols[i] = columnBlurredStyle.Width(outerW).Render(colContent)
@@ -68,7 +74,7 @@ func renderBody(m model) string {
 
 func renderFooter(m model) string {
 	var helpView string
-	if m.state == stateAdding {
+	if m.state == stateAdding || m.state == stateAddingRef {
 		helpView = m.help.View(addingKeys)
 	} else {
 		helpView = m.help.View(kanbanKeys)

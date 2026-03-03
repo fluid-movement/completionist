@@ -12,25 +12,33 @@ import (
 const (
 	stateKanban = iota
 	stateAdding
+	stateAddingRef
 )
 
 type model struct {
-	todos   *TodoList
-	storage Storage
-	columns [3]list.Model
-	focused int
-	width   int
-	height  int
-	state   int
-	input   textinput.Model
-	help    help.Model
-	err     error
+	todos        *TodoList
+	storage      Storage
+	columns      [3]list.Model
+	focused      int
+	width        int
+	height       int
+	state        int
+	input        textinput.Model
+	refInput     textinput.Model
+	pendingTitle string
+	help         help.Model
+	err          error
 }
 
 type todoListItem struct{ todo TodoItem }
 
 func (t todoListItem) Title() string       { return t.todo.Title }
-func (t todoListItem) Description() string { return "added " + t.todo.ReadableCreatedAt() }
+func (t todoListItem) Description() string {
+	if d := t.todo.RefDescription(); d != "" {
+		return d
+	}
+	return "added " + t.todo.ReadableCreatedAt()
+}
 func (t todoListItem) FilterValue() string { return t.todo.Title }
 
 func itemsForStatus(todos *TodoList, status TodoStatus) []list.Item {
@@ -64,6 +72,9 @@ func initialModel(todos *TodoList, storage Storage) model {
 	ti := textinput.New()
 	ti.Placeholder = "Todo title..."
 
+	ri := textinput.New()
+	ri.Placeholder = "URL, file path, or !command (optional)"
+
 	titles := []string{"Open", "In Progress", "Done"}
 	var columns [3]list.Model
 	for i := range 3 {
@@ -79,13 +90,14 @@ func initialModel(todos *TodoList, storage Storage) model {
 	}
 
 	return model{
-		todos:   todos,
-		storage: storage,
-		columns: columns,
-		focused: 0,
-		state:   stateKanban,
-		input:   ti,
-		help:    help.New(),
+		todos:    todos,
+		storage:  storage,
+		columns:  columns,
+		focused:  0,
+		state:    stateKanban,
+		input:    ti,
+		refInput: ri,
+		help:     help.New(),
 	}
 }
 
