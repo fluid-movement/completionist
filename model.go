@@ -20,6 +20,10 @@ const (
 	stateAddingRef
 	statePickingFile
 	stateEditing
+	stateProjects
+	stateAddingProject
+	stateEditingProject
+	stateMovingToProject
 )
 
 const (
@@ -46,6 +50,12 @@ type model struct {
 	editInput    textinput.Model
 	editID       int
 	editIndex    int
+
+	currentProjectID int
+	projectList      list.Model
+	projectInput     textinput.Model
+	editingProjectID int
+	moveProjectIndex int
 }
 
 type editDelegate struct {
@@ -64,6 +74,27 @@ func (d editDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	d.DefaultDelegate.Render(w, m, index, item)
 }
 
+type projectListItem struct{ project Project }
+
+func (p projectListItem) Title() string       { return p.project.Name }
+func (p projectListItem) Description() string { return "" }
+func (p projectListItem) FilterValue() string { return p.project.Name }
+
+type projectEditDelegate struct {
+	list.DefaultDelegate
+	editIndex int
+	input     textinput.Model
+}
+
+func (d projectEditDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	if index == d.editIndex {
+		fmt.Fprintf(w, "%s\n%s", d.input.View(),
+			d.DefaultDelegate.Styles.NormalDesc.Render(""))
+		return
+	}
+	d.DefaultDelegate.Render(w, m, index, item)
+}
+
 type todoListItem struct{ todo TodoItem }
 
 func (t todoListItem) Title() string       { return t.todo.Title }
@@ -75,10 +106,24 @@ func (t todoListItem) Description() string {
 }
 func (t todoListItem) FilterValue() string { return t.todo.Title }
 
-func itemsForStatus(todos *TodoList, status TodoStatus) []list.Item {
+// allProjects returns the default project prepended to the stored projects.
+func allProjects(todos *TodoList) []Project {
+	return append([]Project{{ID: defaultProjectID, Name: "default"}}, todos.Projects...)
+}
+
+func syncProjectList(m *model) {
+	projects := allProjects(m.todos)
+	items := make([]list.Item, len(projects))
+	for i, p := range projects {
+		items[i] = projectListItem{project: p}
+	}
+	m.projectList.SetItems(items)
+}
+
+func itemsForStatus(todos *TodoList, status TodoStatus, projectID int) []list.Item {
 	var items []list.Item
 	for _, item := range todos.Items {
-		if item.Status == status {
+		if item.Status == status && item.ProjectID == projectID {
 			items = append(items, todoListItem{todo: item})
 		}
 	}
@@ -90,7 +135,7 @@ func itemsForStatus(todos *TodoList, status TodoStatus) []list.Item {
 
 func syncColumns(m *model) {
 	for i := range 3 {
-		m.columns[i].SetItems(itemsForStatus(m.todos, TodoStatus(i)))
+		m.columns[i].SetItems(itemsForStatus(m.todos, TodoStatus(i), m.currentProjectID))
 	}
 }
 
@@ -121,7 +166,7 @@ func initialModel(todos *TodoList, storage Storage) model {
 	var columns [3]list.Model
 	for i := range 3 {
 		delegate := list.NewDefaultDelegate()
-		l := list.New(itemsForStatus(todos, TodoStatus(i)), delegate, 0, 0)
+		l := list.New(itemsForStatus(todos, TodoStatus(i), defaultProjectID), delegate, 0, 0)
 		l.Title = titles[i]
 		l.SetFilteringEnabled(false)
 		l.SetShowFilter(false)
@@ -134,7 +179,16 @@ func initialModel(todos *TodoList, storage Storage) model {
 	ei := textinput.New()
 	ei.Placeholder = "Edit title..."
 
-	return model{
+	pi := textinput.New()
+	pi.Placeholder = "Project name..."
+
+	pl := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	pl.SetShowTitle(false)
+	pl.SetFilteringEnabled(false)
+	pl.SetShowStatusBar(false)
+	pl.SetShowHelp(false)
+
+	m := model{
 		todos:      todos,
 		storage:    storage,
 		columns:    columns,
@@ -145,7 +199,11 @@ func initialModel(todos *TodoList, storage Storage) model {
 		filePicker: fp,
 		help:       help.New(),
 		editInput:  ei,
+		projectInput: pi,
+		projectList:  pl,
 	}
+	syncProjectList(&m)
+	return m
 }
 
 func (m model) Init() tea.Cmd {

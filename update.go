@@ -13,13 +13,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.SetWidth(msg.Width)
-		_, innerW, colH := columnSize(msg.Width, msg.Height)
+		outerW, innerW, colH := columnSize(msg.Width, msg.Height)
 		for i := range m.columns {
 			m.columns[i].SetSize(innerW, colH)
 		}
 		m.input.SetWidth(innerW - 2)
 		m.refInput.SetWidth(innerW - 2)
 		m.editInput.SetWidth(innerW - 4)
+		frameW := columnFocusedStyle.GetHorizontalFrameSize()
+		fullInnerW := outerW*3 - frameW
+		m.projectList.SetSize(fullInnerW, colH)
+		m.projectInput.SetWidth(fullInnerW - 2)
 		return m, nil
 	case tea.KeyPressMsg:
 		switch m.state {
@@ -35,6 +39,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePickingFile(msg)
 		case stateEditing:
 			return m.updateEditing(msg)
+		case stateProjects:
+			return m.updateProjects(msg)
+		case stateAddingProject:
+			return m.updateAddingProject(msg)
+		case stateEditingProject:
+			return m.updateEditingProject(msg)
+		case stateMovingToProject:
+			return m.updateMovingToProject(msg)
 		}
 	default:
 		// Forward all other messages (e.g. paste, filepicker readDirMsg) to the active component.
@@ -54,6 +66,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateEditing:
 			var cmd tea.Cmd
 			m.editInput, cmd = m.editInput.Update(msg)
+			return m, cmd
+		case stateAddingProject:
+			var cmd tea.Cmd
+			m.projectInput, cmd = m.projectInput.Update(msg)
+			return m, cmd
+		case stateEditingProject:
+			var cmd tea.Cmd
+			m.projectInput, cmd = m.projectInput.Update(msg)
 			return m, cmd
 		}
 	}
@@ -134,6 +154,19 @@ func (m model) updateKanban(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.err = t.OpenRef()
 		}
 		return m, nil
+	case key.Matches(msg, kanbanKeys.Projects):
+		syncProjectList(&m)
+		outerW, _, colH := columnSize(m.width, m.height)
+		frameW := columnFocusedStyle.GetHorizontalFrameSize()
+		m.projectList.SetSize(outerW*3-frameW, colH)
+		m.state = stateProjects
+		return m, nil
+	case key.Matches(msg, kanbanKeys.Move):
+		if m.columns[m.focused].SelectedItem() != nil {
+			m.moveProjectIndex = 0
+			m.state = stateMovingToProject
+		}
+		return m, nil
 	default:
 		var cmd tea.Cmd
 		m.columns[m.focused], cmd = m.columns[m.focused].Update(msg)
@@ -210,7 +243,7 @@ func (m model) updateChoosingRefType(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, addingKeys.Confirm):
 		switch m.refChoice {
 		case refChoiceNothing:
-			m.todos.Add(m.pendingTitle, "")
+			m.todos.Add(m.pendingTitle, "", m.currentProjectID)
 			m.storage.Save(m.todos)
 			syncColumns(&m)
 			m.pendingTitle = ""
@@ -238,7 +271,7 @@ func (m model) updateAddingRef(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.state = stateChoosingRefType
 		return m, nil
 	case key.Matches(msg, addingKeys.Confirm):
-		m.todos.Add(m.pendingTitle, strings.TrimSpace(m.refInput.Value()))
+		m.todos.Add(m.pendingTitle, strings.TrimSpace(m.refInput.Value()), m.currentProjectID)
 		m.storage.Save(m.todos)
 		syncColumns(&m)
 		m.pendingTitle = ""
@@ -260,11 +293,130 @@ func (m model) updatePickingFile(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.filePicker, cmd = m.filePicker.Update(msg)
 	if ok, path := m.filePicker.DidSelectFile(msg); ok {
-		m.todos.Add(m.pendingTitle, path)
+		m.todos.Add(m.pendingTitle, path, m.currentProjectID)
 		m.storage.Save(m.todos)
 		syncColumns(&m)
 		m.pendingTitle = ""
 		m.state = stateKanban
 	}
 	return m, cmd
+}
+
+func (m model) updateProjects(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, projectKeys.Quit):
+		return m, tea.Quit
+	case key.Matches(msg, projectKeys.Back):
+		m.state = stateKanban
+		return m, nil
+	case key.Matches(msg, addingKeys.Confirm):
+		if item := m.projectList.SelectedItem(); item != nil {
+			p := item.(projectListItem).project
+			m.currentProjectID = p.ID
+			syncColumns(&m)
+		}
+		m.state = stateKanban
+		return m, nil
+	case key.Matches(msg, projectKeys.Add):
+		m.projectInput.Reset()
+		m.editingProjectID = -1
+		m.state = stateAddingProject
+		return m, m.projectInput.Focus()
+	case key.Matches(msg, projectKeys.Edit):
+		if item := m.projectList.SelectedItem(); item != nil {
+			p := item.(projectListItem).project
+			if p.ID != defaultProjectID {
+				m.editingProjectID = p.ID
+				m.projectInput.SetValue(p.Name)
+				m.state = stateEditingProject
+				return m, m.projectInput.Focus()
+			}
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.projectList, cmd = m.projectList.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m model) updateAddingProject(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, addingKeys.Cancel):
+		m.projectInput.Blur()
+		m.state = stateProjects
+		return m, nil
+	case key.Matches(msg, addingKeys.Confirm):
+		name := strings.TrimSpace(m.projectInput.Value())
+		if name == "" {
+			return m, nil
+		}
+		m.todos.AddProject(name)
+		m.storage.Save(m.todos)
+		syncProjectList(&m)
+		m.projectInput.Blur()
+		m.state = stateProjects
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.projectInput, cmd = m.projectInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m model) updateEditingProject(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, addingKeys.Cancel):
+		m.projectInput.Blur()
+		m.state = stateProjects
+		return m, nil
+	case key.Matches(msg, addingKeys.Confirm):
+		name := strings.TrimSpace(m.projectInput.Value())
+		if name == "" {
+			return m, nil
+		}
+		m.todos.SetProjectName(m.editingProjectID, name)
+		m.storage.Save(m.todos)
+		syncProjectList(&m)
+		m.projectInput.Blur()
+		m.state = stateProjects
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.projectInput, cmd = m.projectInput.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m model) updateMovingToProject(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	projects := allProjects(m.todos)
+	switch {
+	case key.Matches(msg, addingKeys.Cancel):
+		m.state = stateKanban
+		return m, nil
+	case key.Matches(msg, kanbanKeys.Up):
+		if m.moveProjectIndex > 0 {
+			m.moveProjectIndex--
+		}
+		return m, nil
+	case key.Matches(msg, kanbanKeys.Down):
+		if m.moveProjectIndex < len(projects)-1 {
+			m.moveProjectIndex++
+		}
+		return m, nil
+	case key.Matches(msg, addingKeys.Confirm):
+		if item := m.columns[m.focused].SelectedItem(); item != nil {
+			t := item.(todoListItem).todo
+			selectedProject := projects[m.moveProjectIndex]
+			m.err = m.todos.SetTodoProject(t.ID, selectedProject.ID)
+			if m.err == nil {
+				m.storage.Save(m.todos)
+				syncColumns(&m)
+				clampCursor(&m, m.focused)
+			}
+		}
+		m.state = stateKanban
+		return m, nil
+	}
+	return m, nil
 }

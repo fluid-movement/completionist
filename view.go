@@ -9,10 +9,17 @@ import (
 )
 
 func (m model) View() tea.View {
+	var body string
+	switch m.state {
+	case stateProjects, stateAddingProject, stateEditingProject:
+		body = renderProjects(m)
+	default:
+		body = renderBody(m)
+	}
 	v := tea.NewView(lipgloss.JoinVertical(
 		0,
-		renderHeader(),
-		renderBody(m),
+		renderHeader(m),
+		body,
 		renderFooter(m),
 	))
 	v.AltScreen = true
@@ -20,8 +27,17 @@ func (m model) View() tea.View {
 	return v
 }
 
-func renderHeader() string {
-	return titleStyle.Render("✓ Completionist") + "\n" + subtitleStyle.Render("your personal todo list") + "\n\n"
+func renderHeader(m model) string {
+	subtitle := subtitleStyle.Render("your personal todo list")
+	if m.currentProjectID != defaultProjectID {
+		for _, p := range m.todos.Projects {
+			if p.ID == m.currentProjectID {
+				subtitle = pendingTitleStyle.Render(p.Name)
+				break
+			}
+		}
+	}
+	return titleStyle.Render("✓ Completionist") + "\n" + subtitle + "\n\n"
 }
 
 func renderBody(m model) string {
@@ -39,6 +55,7 @@ func renderBody(m model) string {
 		isAddingRef := m.state == stateAddingRef && i == 0
 		isPickingFile := m.state == statePickingFile && i == 0
 		isEditing := m.state == stateEditing && i == m.focused
+		isMovingToProject := m.state == stateMovingToProject && i == m.focused
 		isFocused := i == m.focused && m.state == stateKanban
 
 		// Render the title bar using the list's own styles (list.SetShowTitle is false)
@@ -83,6 +100,11 @@ func renderBody(m model) string {
 			m.filePicker.SetHeight(colH - titleH - pendingH)
 			sections = append(sections, pendingLine, m.filePicker.View())
 			showList = false
+		case isMovingToProject:
+			chooser := renderProjectChooser(m)
+			chooserH := lipgloss.Height(chooser)
+			m.columns[i].SetSize(innerW, colH-titleH-chooserH)
+			sections = append(sections, chooser)
 		default:
 			if !isFocused {
 				m.columns[i].SetDelegate(blurredDelegate)
@@ -95,7 +117,7 @@ func renderBody(m model) string {
 		}
 		colContent := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
-		if isFocused || isAdding || isChoosingRef || isAddingRef || isPickingFile || isEditing {
+		if isFocused || isAdding || isChoosingRef || isAddingRef || isPickingFile || isEditing || isMovingToProject {
 			cols[i] = columnFocusedStyle.Width(outerW).Render(colContent)
 		} else {
 			cols[i] = columnBlurredStyle.Width(outerW).Render(colContent)
@@ -103,6 +125,49 @@ func renderBody(m model) string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, cols[0], cols[1], cols[2])
+}
+
+func renderProjects(m model) string {
+	outerW, _, colH := columnSize(m.width, m.height)
+	fullOuterW := outerW * 3
+	frameW := columnFocusedStyle.GetHorizontalFrameSize()
+	fullInnerW := fullOuterW - frameW
+
+	var sections []string
+	listH := colH
+
+	switch m.state {
+	case stateAddingProject:
+		sections = append(sections, m.projectInput.View())
+		listH = colH - 1
+	case stateEditingProject:
+		ed := projectEditDelegate{
+			DefaultDelegate: list.NewDefaultDelegate(),
+			editIndex:       m.projectList.Index(),
+			input:           m.projectInput,
+		}
+		m.projectList.SetDelegate(ed)
+	}
+
+	m.projectList.SetSize(fullInnerW, listH)
+	sections = append(sections, m.projectList.View())
+
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return columnFocusedStyle.Width(fullOuterW).Render(content)
+}
+
+func renderProjectChooser(m model) string {
+	var b strings.Builder
+	projects := allProjects(m.todos)
+	for i, p := range projects {
+		if i == m.moveProjectIndex {
+			b.WriteString(refChoiceSelectedStyle.Render("> " + p.Name))
+		} else {
+			b.WriteString(refChoiceStyle.Render("  " + p.Name))
+		}
+		b.WriteRune('\n')
+	}
+	return b.String()
 }
 
 var refChoiceLabels = []string{"nothing", "paste URL / path", "select file"}
@@ -122,9 +187,14 @@ func renderRefChooser(m model) string {
 
 func renderFooter(m model) string {
 	var helpView string
-	if m.state == stateAdding || m.state == stateChoosingRefType || m.state == stateAddingRef || m.state == statePickingFile || m.state == stateEditing {
+	switch m.state {
+	case stateProjects:
+		helpView = m.help.View(projectKeys)
+	case stateAddingProject, stateEditingProject:
 		helpView = m.help.View(addingKeys)
-	} else {
+	case stateAdding, stateChoosingRefType, stateAddingRef, statePickingFile, stateEditing, stateMovingToProject:
+		helpView = m.help.View(addingKeys)
+	default:
 		helpView = m.help.View(kanbanKeys)
 	}
 	if m.err != nil {

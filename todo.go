@@ -16,6 +16,13 @@ const (
 	StatusDone
 )
 
+const defaultProjectID = 0
+
+type Project struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type TodoItem struct {
 	ID        int        `json:"id"`
 	Title     string     `json:"title"`
@@ -23,19 +30,22 @@ type TodoItem struct {
 	UpdatedAt int64      `json:"updated_at,omitempty"`
 	CreatedAt int64      `json:"created_at"`
 	Ref       string     `json:"ref,omitempty"`
+	ProjectID int        `json:"project_id,omitempty"`
 }
 
 type TodoList struct {
-	Items []TodoItem
+	Items    []TodoItem
+	Projects []Project `json:"projects,omitempty"`
 }
 
-func (l *TodoList) Add(title, ref string) (TodoItem, error) {
+func (l *TodoList) Add(title, ref string, projectID int) (TodoItem, error) {
 	todo := TodoItem{
 		ID:        l.nextID(),
 		Title:     title,
 		Status:    StatusOpen,
 		CreatedAt: time.Now().Unix(),
 		Ref:       ref,
+		ProjectID: projectID,
 	}
 
 	l.Items = append(l.Items, todo)
@@ -160,4 +170,43 @@ func (i *TodoItem) ReadableUpdatedAt() string {
 	}
 	t := time.Unix(i.UpdatedAt, 0)
 	return t.Format("2006-01-02 15:04:05")
+}
+
+func (l *TodoList) AddProject(name string) Project {
+	p := Project{ID: l.nextProjectID(), Name: name}
+	l.Projects = append(l.Projects, p)
+	return p
+}
+
+func (l *TodoList) SetProjectName(id int, name string) error {
+	for i, p := range l.Projects {
+		if p.ID == id {
+			l.Projects[i].Name = name
+			return nil
+		}
+	}
+	return fmt.Errorf("project with ID %d not found", id)
+}
+
+func (l *TodoList) SetTodoProject(todoID int, projectID int) error {
+	for i, item := range l.Items {
+		if item.ID == todoID {
+			l.Items[i].ProjectID = projectID
+			return nil
+		}
+	}
+	return fmt.Errorf("todo with ID %d not found", todoID)
+}
+
+func (l *TodoList) nextProjectID() int {
+	if len(l.Projects) == 0 {
+		return 1
+	}
+	max := 0
+	for _, p := range l.Projects {
+		if p.ID > max {
+			max = p.ID
+		}
+	}
+	return max + 1
 }

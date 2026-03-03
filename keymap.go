@@ -6,28 +6,30 @@ import (
 
 // kanbanKeyMap holds all bindings used in the main kanban view.
 type kanbanKeyMap struct {
-	Add     key.Binding
-	Advance key.Binding
-	Retreat key.Binding
-	Left    key.Binding
-	Right   key.Binding
-	Up      key.Binding
-	Down    key.Binding
-	Delete  key.Binding
-	Edit    key.Binding
-	Open    key.Binding
-	Quit    key.Binding
+	Add      key.Binding
+	Advance  key.Binding
+	Retreat  key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Delete   key.Binding
+	Edit     key.Binding
+	Open     key.Binding
+	Projects key.Binding
+	Move     key.Binding
+	Quit     key.Binding
 }
 
 func (k kanbanKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Add, k.Advance, k.Retreat, k.Left, k.Right, k.Delete, k.Edit, k.Open, k.Quit}
+	return []key.Binding{k.Add, k.Advance, k.Retreat, k.Left, k.Right, k.Delete, k.Edit, k.Open, k.Projects, k.Move, k.Quit}
 }
 
 func (k kanbanKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Add, k.Advance, k.Retreat},
 		{k.Left, k.Right, k.Up, k.Down},
-		{k.Delete, k.Edit, k.Open, k.Quit},
+		{k.Delete, k.Edit, k.Open, k.Projects, k.Move, k.Quit},
 	}
 }
 
@@ -85,6 +87,49 @@ var kanbanKeys = kanbanKeyMap{
 	Open: key.NewBinding(
 		key.WithKeys("o"),
 		key.WithHelp("o", "open ref"),
+	),
+	Projects: key.NewBinding(
+		key.WithKeys("g"),
+		key.WithHelp("g", "projects"),
+	),
+	Move: key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "move to project"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c"),
+		key.WithHelp("q", "quit"),
+	),
+}
+
+// projectKeyMap holds bindings used in the full-screen project list view.
+type projectKeyMap struct {
+	Add  key.Binding
+	Edit key.Binding
+	Back key.Binding
+	Quit key.Binding
+}
+
+func (k projectKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Add, k.Edit, k.Back, k.Quit}
+}
+
+func (k projectKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{{k.Add, k.Edit, k.Back, k.Quit}}
+}
+
+var projectKeys = projectKeyMap{
+	Add: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "add project"),
+	),
+	Edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", "edit project"),
+	),
+	Back: key.NewBinding(
+		key.WithKeys("esc", "g"),
+		key.WithHelp("esc/g", "back"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
