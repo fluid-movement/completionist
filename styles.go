@@ -38,10 +38,33 @@ var (
 				Foreground(lipgloss.Color("#A855F7")).
 				Bold(true).
 				PaddingLeft(2)
+
+	// Header banner
+	headerBannerStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#5B21B6")).
+				Foreground(lipgloss.Color("#F5F3FF")).
+				Bold(true).
+				Padding(0, 2)
+
+	headerBadgeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#4C1D95")).
+				Background(lipgloss.Color("#DDD6FE")).
+				Bold(true).
+				Padding(0, 1)
+
+	// Project panel title
+	projectPanelTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#A855F7"))
+
+	moveChooserHeaderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6B7280")).
+				Italic(true).
+				PaddingLeft(2)
 )
 
 const (
-	headerHeight = 3 // title + subtitle + blank line
+	headerHeight = 2 // banner line + blank line
 	footerHeight = 2 // help row + newline
 )
 

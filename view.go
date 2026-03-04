@@ -28,25 +28,43 @@ func (m model) View() tea.View {
 }
 
 func renderHeader(m model) string {
-	subtitle := subtitleStyle.Render("your personal todo list")
+	titleText := "◆ completionist"
+
+	// Project badge — shown when not in the default project
+	var badge string
 	if m.currentProjectID != defaultProjectID {
 		for _, p := range m.todos.Projects {
 			if p.ID == m.currentProjectID {
-				subtitle = pendingTitleStyle.Render(p.Name)
+				badge = headerBadgeStyle.Render("◉ " + p.Name)
 				break
 			}
 		}
 	}
-	return titleStyle.Render("✓ Completionist") + "\n" + subtitle + "\n\n"
+
+	bannerW := m.width
+	if bannerW <= 0 {
+		bannerW = 80
+	}
+
+	var content string
+	if badge != "" {
+		innerW := bannerW - headerBannerStyle.GetHorizontalPadding()
+		spacerW := innerW - lipgloss.Width(titleText) - lipgloss.Width(badge)
+		if spacerW < 1 {
+			spacerW = 1
+		}
+		content = titleText + strings.Repeat(" ", spacerW) + badge
+	} else {
+		content = titleText
+	}
+
+	banner := headerBannerStyle.Width(bannerW).Render(content)
+	return banner + "\n"
 }
 
 func renderBody(m model) string {
 	outerW, innerW, colH := columnSize(m.width, m.height)
-
-	// Delegate that suppresses the selection highlight — used for non-focused columns
-	blurredDelegate := list.NewDefaultDelegate()
-	blurredDelegate.Styles.SelectedTitle = blurredDelegate.Styles.NormalTitle
-	blurredDelegate.Styles.SelectedDesc = blurredDelegate.Styles.NormalDesc
+	textwidth := innerW - 2 // NormalTitle PaddingLeft=2
 
 	var cols [3]string
 	for i := range m.columns {
@@ -57,6 +75,12 @@ func renderBody(m model) string {
 		isEditing := m.state == stateEditing && i == m.focused
 		isMovingToProject := m.state == stateMovingToProject && i == m.focused
 		isFocused := i == m.focused && m.state == stateKanban
+
+		// Per-column delegate sized to the longest title in this column
+		titleLines := columnTitleLines(m.columns[i].Items(), textwidth)
+		blurredDelegate := newWrappingDelegate(titleLines)
+		blurredDelegate.Styles.SelectedTitle = blurredDelegate.Styles.NormalTitle
+		blurredDelegate.Styles.SelectedDesc = blurredDelegate.Styles.NormalDesc
 
 		// Render the title bar using the list's own styles (list.SetShowTitle is false)
 		titleBar := m.columns[i].Styles.TitleBar.Render(
@@ -71,9 +95,9 @@ func renderBody(m model) string {
 		switch {
 		case isEditing:
 			ed := editDelegate{
-				DefaultDelegate: list.NewDefaultDelegate(),
-				editIndex:       m.editIndex,
-				input:           m.editInput,
+				wrappingDelegate: newWrappingDelegate(titleLines),
+				editIndex:        m.editIndex,
+				input:            m.editInput,
 			}
 			m.columns[i].SetDelegate(ed)
 			m.columns[i].SetSize(innerW, colH-titleH)
@@ -104,7 +128,8 @@ func renderBody(m model) string {
 			chooser := renderProjectChooser(m)
 			chooserH := lipgloss.Height(chooser)
 			m.columns[i].SetSize(innerW, colH-titleH-chooserH)
-			sections = append(sections, chooser)
+			showList = false
+			sections = append(sections, renderColumnWithInlineChooser(m.columns[i], chooser))
 		default:
 			if !isFocused {
 				m.columns[i].SetDelegate(blurredDelegate)
@@ -128,36 +153,93 @@ func renderBody(m model) string {
 }
 
 func renderProjects(m model) string {
-	outerW, _, colH := columnSize(m.width, m.height)
-	fullOuterW := outerW * 3
+	_, _, colH := columnSize(m.width, m.height)
+
+	// Centered panel capped at 56 chars outer width
+	panelOuterW := min(56, m.width)
 	frameW := columnFocusedStyle.GetHorizontalFrameSize()
-	fullInnerW := fullOuterW - frameW
+	panelInnerW := panelOuterW - frameW
+
+	// Title + separator (2 lines)
+	titleLine := projectPanelTitleStyle.Render("◈  projects")
+	separator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#374151")).
+		Render(strings.Repeat("─", panelInnerW))
+	const titleH = 2
 
 	var sections []string
-	listH := colH
+	sections = append(sections, titleLine+"\n"+separator)
+	tableH := colH - titleH
 
-	switch m.state {
-	case stateAddingProject:
+	// Optional text input above the table when adding or editing
+	if m.state == stateAddingProject || m.state == stateEditingProject {
 		sections = append(sections, m.projectInput.View())
-		listH = colH - 1
-	case stateEditingProject:
-		ed := projectEditDelegate{
-			DefaultDelegate: list.NewDefaultDelegate(),
-			editIndex:       m.projectList.Index(),
-			input:           m.projectInput,
-		}
-		m.projectList.SetDelegate(ed)
+		tableH = colH - titleH - 1
 	}
 
-	m.projectList.SetSize(fullInnerW, listH)
-	sections = append(sections, m.projectList.View())
+	// Size and render the stats table
+	cols := projectTableCols(panelInnerW)
+	m.projectTable.SetColumns(cols)
+	m.projectTable.SetWidth(panelInnerW)
+	m.projectTable.SetHeight(tableH)
+	sections = append(sections, m.projectTable.View())
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	return columnFocusedStyle.Width(fullOuterW).Render(content)
+	panel := columnFocusedStyle.Width(panelOuterW).Render(content)
+
+	// Center the panel horizontally
+	panelVisualW := lipgloss.Width(panel)
+	leftPad := (m.width - panelVisualW) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	lines := strings.Split(panel, "\n")
+	pad := strings.Repeat(" ", leftPad)
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = pad + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderColumnWithInlineChooser manually renders the visible list items, injecting
+// the chooser string directly after the selected item so it appears inline.
+func renderColumnWithInlineChooser(col list.Model, chooser string) string {
+	items := col.VisibleItems()
+	if len(items) == 0 {
+		return chooser
+	}
+	start, end := col.Paginator.GetSliceBounds(len(items))
+	docs := items[start:end]
+	selectedIdx := col.Index()
+	textwidth := col.Width() - 2 // NormalTitle PaddingLeft=2
+	d := newWrappingDelegate(columnTitleLines(col.Items(), textwidth))
+
+	var b strings.Builder
+	for i, item := range docs {
+		d.Render(&b, col, i+start, item)
+		if i+start == selectedIdx {
+			b.WriteRune('\n')
+			b.WriteString(chooser)
+		}
+		if i != len(docs)-1 {
+			b.WriteString(strings.Repeat("\n", d.Spacing()+1))
+		}
+	}
+	// Pad remaining space to maintain consistent column height
+	itemsOnPage := len(docs)
+	if itemsOnPage < col.Paginator.PerPage {
+		n := (col.Paginator.PerPage - itemsOnPage) * (d.Height() + d.Spacing())
+		b.WriteString(strings.Repeat("\n", n))
+	}
+	return b.String()
 }
 
 func renderProjectChooser(m model) string {
 	var b strings.Builder
+	b.WriteString(moveChooserHeaderStyle.Render("move to project"))
+	b.WriteRune('\n')
 	projects := allProjects(m.todos)
 	for i, p := range projects {
 		if i == m.moveProjectIndex {
